@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Sentinel · Agentic Anomaly Detection</title>
+<style>
+  :root {
+    --bg: #0e1117; --panel: #161b24; --panel2: #1d2430; --line: #2a3340;
+    --ink: #e6edf3; --muted: #8b97a7; --accent: #4ade80; --accent2: #38bdf8;
+    --warn: #fbbf24; --crit: #f87171; --info: #60a5fa;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    --sans: "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--sans);
+         font-size: 14px; line-height: 1.5; }
+  header { display: flex; align-items: center; gap: 14px; padding: 14px 22px;
+           border-bottom: 1px solid var(--line); background: var(--panel); position: sticky; top: 0; z-index: 10; }
+  header .logo { width: 12px; height: 12px; border-radius: 50%; background: var(--accent);
+                 box-shadow: 0 0 12px var(--accent); }
+  header h1 { font-size: 17px; margin: 0; font-weight: 600; letter-spacing: .3px; }
+  header .sub { color: var(--muted); font-size: 12px; }
+  header .spacer { flex: 1; }
+  .pill { font-family: var(--mono); font-size: 11px; padding: 4px 10px; border-radius: 999px;
+          border: 1px solid var(--line); color: var(--muted); }
+  .status-healthy { color: var(--accent); border-color: var(--accent); }
+  .status-degraded { color: var(--warn); border-color: var(--warn); }
+  .status-critical { color: var(--crit); border-color: var(--crit); }
+
+  main { display: grid; grid-template-columns: 1.15fr 1fr; gap: 16px; padding: 16px 22px; max-width: 1500px; margin: 0 auto; }
+  .col { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+  .card h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted);
+             margin: 0; padding: 12px 16px; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 8px; }
+  .card .body { padding: 14px 16px; }
+
+  /* Chat */
+  #chatlog { display: flex; flex-direction: column; gap: 10px; max-height: 340px; overflow-y: auto; padding: 14px 16px; }
+  .msg { padding: 10px 13px; border-radius: 10px; max-width: 92%; white-space: pre-wrap; word-break: break-word; }
+  .msg.user { align-self: flex-end; background: var(--accent2); color: #04141f; }
+  .msg.bot { align-self: flex-start; background: var(--panel2); border: 1px solid var(--line); }
+  .msg .tools { margin-top: 7px; font-family: var(--mono); font-size: 11px; color: var(--muted); }
+  .composer { display: flex; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--line); }
+  .composer input { flex: 1; background: var(--bg); border: 1px solid var(--line); color: var(--ink);
+                    padding: 10px 12px; border-radius: 8px; font-size: 14px; }
+  .composer input:focus { outline: none; border-color: var(--accent2); }
+  button { background: var(--accent); color: #04140a; border: none; padding: 9px 15px; border-radius: 8px;
+           font-weight: 600; cursor: pointer; font-size: 13px; }
+  button:hover { filter: brightness(1.08); }
+  button.ghost { background: transparent; color: var(--muted); border: 1px solid var(--line); }
+  button.ghost:hover { color: var(--ink); border-color: var(--accent2); }
+  .suggestions { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 16px 12px; }
+  .suggestions button { background: var(--panel2); color: var(--muted); border: 1px solid var(--line);
+                        font-weight: 400; font-size: 12px; padding: 5px 10px; }
+
+  /* Metric grid */
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+  .svc { background: var(--panel2); border: 1px solid var(--line); border-radius: 9px; padding: 10px 12px; }
+  .svc h3 { margin: 0 0 8px; font-size: 12px; color: var(--accent2); font-family: var(--mono); }
+  .metric-row { display: flex; justify-content: space-between; font-family: var(--mono); font-size: 11.5px; padding: 1px 0; }
+  .metric-row .k { color: var(--muted); }
+  .metric-row.hot .v { color: var(--crit); font-weight: 700; }
+
+  /* Lists */
+  .item { border-bottom: 1px solid var(--line); padding: 10px 16px; font-size: 13px; }
+  .item:last-child { border-bottom: none; }
+  .scroll { max-height: 300px; overflow-y: auto; }
+  .badge { font-family: var(--mono); font-size: 10px; padding: 2px 7px; border-radius: 5px; text-transform: uppercase; }
+  .b-critical { background: rgba(248,113,113,.16); color: var(--crit); }
+  .b-warning { background: rgba(251,191,36,.16); color: var(--warn); }
+  .b-info { background: rgba(96,165,250,.16); color: var(--info); }
+  .b-pattern { background: var(--panel2); color: var(--muted); border: 1px solid var(--line); }
+  .b-resolved { background: rgba(74,222,128,.16); color: var(--accent); }
+  .b-open { background: rgba(251,191,36,.16); color: var(--warn); }
+  .treatments { margin-top: 6px; font-family: var(--mono); font-size: 11px; color: var(--muted); }
+  .t-executed { color: var(--accent); }
+  .t-pending_approval { color: var(--warn); }
+  .muted { color: var(--muted); }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+  /* Event log */
+  #events { font-family: var(--mono); font-size: 11.5px; max-height: 260px; overflow-y: auto; padding: 12px 16px; }
+  #events div { padding: 1px 0; color: var(--muted); white-space: pre-wrap; }
+  #events div.detect { color: var(--accent2); }
+  #events div.treat, #events div.manual { color: var(--accent); }
+  #events div.correlate { color: var(--crit); }
+  #events div.resolve { color: var(--accent); }
+
+  .controls select, .controls input { background: var(--bg); border: 1px solid var(--line); color: var(--ink);
+                                       padding: 7px 9px; border-radius: 7px; font-size: 12px; font-family: var(--mono); }
+  ::-webkit-scrollbar { width: 9px; height: 9px; }
+  ::-webkit-scrollbar-thumb { background: var(--line); border-radius: 9px; }
+  @media (max-width: 1000px) { main { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <span class="logo"></span>
+  <div>
+    <h1>Sentinel</h1>
+    <div class="sub">Agentic anomaly detection &amp; auto-treatment engine</div>
+  </div>
+  <div class="spacer"></div>
+  <span class="pill" id="agentPill">agent: …</span>
+  <span class="pill" id="tickPill">tick 0</span>
+  <span class="pill status-healthy" id="statusPill">HEALTHY</span>
+</header>
+
+<main>
+  <div class="col">
+    <div class="card">
+      <h2>◆ Ask the engine</h2>
+      <div id="chatlog">
+        <div class="msg bot">Hi — I monitor 4 services across 5 metrics, detect anomalies, and run treatment playbooks automatically. Ask me about system health, anomalies, or incidents — or tell me to scale, restart, or test something.</div>
+      </div>
+      <div class="suggestions" id="suggestions">
+        <button data-q="What's the overall system health?">system health</button>
+        <button data-q="List recent anomalies">recent anomalies</button>
+        <button data-q="Show recent incidents and what treatments were applied">incidents + treatments</button>
+        <button data-q="What is cpu_pct doing on payment-svc?">cpu on payment-svc</button>
+      </div>
+      <div class="composer">
+        <input id="q" placeholder="Ask in natural language…  e.g. 'scale out search-svc'"
+               autocomplete="off" />
+        <button id="send">Send</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>◆ Live metrics</h2>
+      <div class="body"><div class="grid" id="metrics"></div></div>
+    </div>
+
+    <div class="card controls">
+      <h2>◆ Inject test scenario</h2>
+      <div class="body">
+        <div class="row">
+          <select id="injSvc"></select>
+          <select id="injMetric"></select>
+          <select id="injKind">
+            <option value="spike">spike</option>
+            <option value="drift_up">drift_up (sustained)</option>
+            <option value="drift_down">drift_down</option>
+            <option value="dip">dip</option>
+            <option value="flatline">flatline</option>
+          </select>
+          <button id="injBtn">Inject</button>
+        </div>
+        <div class="muted" style="margin-top:8px; font-size:12px;">
+          Injecting a fault triggers detection → classification → an automatic treatment playbook within a few ticks.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col">
+    <div class="card">
+      <h2>◆ Anomalies <span class="muted" id="anomCount"></span></h2>
+      <div class="scroll" id="anomalies"></div>
+    </div>
+    <div class="card">
+      <h2>◆ Incidents &amp; treatments <span class="muted" id="incCount"></span></h2>
+      <div class="scroll" id="incidents"></div>
+    </div>
+    <div class="card">
+      <h2>◆ Engine activity</h2>
+      <div id="events"></div>
+    </div>
+  </div>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const SERVICES = ["api-gateway", "payment-svc", "auth-svc", "search-svc"];
+const METRICS = ["cpu_pct", "memory_pct", "latency_ms", "error_rate", "request_rate"];
+
+async function api(path, opts) {
+  const r = await fetch(path, opts);
+  return r.json();
+}
+
+function sevClass(s) { return "b-" + s; }
+
+// ---- chat ----
+function addMsg(text, who, tools) {
+  const div = document.createElement("div");
+  div.className = "msg " + who;
+  div.textContent = text;
+  if (tools && tools.length) {
+    const t = document.createElement("div");
+    t.className = "tools";
+    t.textContent = "⚙ " + tools.map(x => x.tool).join(" → ");
+    div.appendChild(t);
+  }
+  $("chatlog").appendChild(div);
+  $("chatlog").scrollTop = $("chatlog").scrollHeight;
+}
+
+async function send(question) {
+  const q = (question || $("q").value).trim();
+  if (!q) return;
+  addMsg(q, "user");
+  $("q").value = "";
+  const thinking = document.createElement("div");
+  thinking.className = "msg bot"; thinking.textContent = "…";
+  $("chatlog").appendChild(thinking);
+  try {
+    const res = await api("/api/ask", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({question: q}),
+    });
+    thinking.remove();
+    addMsg(res.answer || "(no answer)", "bot", res.tools_used);
+    if (res.note) addMsg(res.note, "bot");
+    refreshAll();
+  } catch (e) {
+    thinking.remove();
+    addMsg("Error contacting engine: " + e, "bot");
+  }
+}
+
+$("send").onclick = () => send();
+$("q").addEventListener("keydown", (e) => { if (e.key === "Enter") send(); });
+$("suggestions").addEventListener("click", (e) => {
+  if (e.target.dataset.q) send(e.target.dataset.q);
+});
+
+// ---- inject controls ----
+SERVICES.forEach(s => { const o = document.createElement("option"); o.value = o.textContent = s; $("injSvc").appendChild(o); });
+METRICS.forEach(m => { const o = document.createElement("option"); o.value = o.textContent = m; $("injMetric").appendChild(o); });
+$("injBtn").onclick = async () => {
+  await api("/api/inject", {
+    method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({service: $("injSvc").value, metric: $("injMetric").value, kind: $("injKind").value}),
+  });
+  refreshAll();
+};
+
+// ---- dashboard refresh ----
+async function refreshHealth() {
+  const h = await api("/api/health");
+  $("tickPill").textContent = "tick " + h.tick;
+  const sp = $("statusPill");
+  sp.textContent = h.status.toUpperCase();
+  sp.className = "pill status-" + h.status;
+  $("agentPill").textContent = h.agent_online ? ("agent: " + h.model) : "agent: offline";
+
+  const grid = $("metrics"); grid.innerHTML = "";
+  Object.entries(h.snapshot).forEach(([svc, metrics]) => {
+    const card = document.createElement("div"); card.className = "svc";
+    const title = document.createElement("h3"); title.textContent = svc; card.appendChild(title);
+    Object.entries(metrics).forEach(([k, v]) => {
+      const row = document.createElement("div"); row.className = "metric-row";
+      row.innerHTML = `<span class="k">${k}</span><span class="v">${v}</span>`;
+      card.appendChild(row);
+    });
+    grid.appendChild(card);
+  });
+}
+
+async function refreshAnomalies() {
+  const {anomalies} = await api("/api/anomalies?limit=20");
+  $("anomCount").textContent = anomalies.length ? `(${anomalies.length})` : "";
+  const el = $("anomalies"); el.innerHTML = "";
+  if (!anomalies.length) { el.innerHTML = '<div class="item muted">No anomalies detected.</div>'; return; }
+  anomalies.forEach(a => {
+    const d = document.createElement("div"); d.className = "item";
+    const t = new Date(a.ts * 1000).toLocaleTimeString();
+    d.innerHTML = `<div class="row">
+        <span class="badge ${sevClass(a.severity)}">${a.severity}</span>
+        <span class="badge b-pattern">${a.pattern}</span>
+        <span class="muted" style="margin-left:auto;font-family:var(--mono);font-size:11px;">${t}</span>
+      </div>
+      <div style="margin-top:5px;">${a.description}</div>
+      <div class="muted" style="font-family:var(--mono);font-size:11px;">detector=${a.detector} score=${a.score}</div>`;
+    el.appendChild(d);
+  });
+}
+
+async function refreshIncidents() {
+  const {incidents} = await api("/api/incidents?limit=20");
+  $("incCount").textContent = incidents.length ? `(${incidents.length})` : "";
+  const el = $("incidents"); el.innerHTML = "";
+  if (!incidents.length) { el.innerHTML = '<div class="item muted">No incidents.</div>'; return; }
+  incidents.forEach(inc => {
+    const a = inc.anomaly;
+    const d = document.createElement("div"); d.className = "item";
+    const state = inc.resolved ? '<span class="badge b-resolved">resolved</span>' : '<span class="badge b-open">open</span>';
+    const treatments = inc.treatments.map(t =>
+      `<span class="t-${t.status}">${t.action}</span> <span class="muted">[${t.status}]</span>`).join(" · ");
+    let approve = "";
+    if (inc.treatments.some(t => t.status === "pending_approval")) {
+      approve = `<button class="ghost" style="margin-top:7px;font-size:11px;padding:4px 9px;" onclick="approve('${inc.id}')">Approve</button>`;
+    }
+    d.innerHTML = `<div class="row">
+        ${state}
+        <span class="badge ${sevClass(a.severity)}">${a.severity}</span>
+        <span class="badge b-pattern">${a.pattern}</span>
+        <span class="muted" style="margin-left:auto;font-family:var(--mono);font-size:11px;">${inc.id}</span>
+      </div>
+      <div style="margin-top:5px;">${a.service}.${a.metric} — ${a.description}</div>
+      <div class="treatments">↳ ${treatments || "no actions"}</div>${approve}`;
+    el.appendChild(d);
+  });
+}
+
+async function approve(id) {
+  await api(`/api/incidents/${id}/approve`, {method: "POST"});
+  refreshIncidents();
+}
+
+async function refreshEvents() {
+  const {events} = await api("/api/events?limit=40");
+  const el = $("events"); el.innerHTML = "";
+  events.forEach(line => {
+    const d = document.createElement("div");
+    const tag = (line.match(/\[(\w+)\]/) || [])[1] || "";
+    d.className = tag;
+    d.textContent = line;
+    el.appendChild(d);
+  });
+}
+
+function refreshAll() {
+  refreshHealth(); refreshAnomalies(); refreshIncidents(); refreshEvents();
+}
+
+refreshAll();
+setInterval(refreshAll, 2500);
+</script>
+</body>
+</html>
